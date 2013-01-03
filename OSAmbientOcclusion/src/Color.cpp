@@ -5,20 +5,9 @@
 // to gain further license informations please contact me via
 // spiegelb (at) in.tum.de
 
-#ifndef MAIN_HEADER_
-#define MAIN_HEADER_
-
-// needs boost & glfw installed to compile properly
-
-#include <iostream>
-#include <boost/thread.hpp>
-#include <gl/glfw.h>
-
-#include <cmath>
-#include <iostream>
-#include <sstream>
-
-// own headers
 #include "Color.h"
 
-#endif
+
+// define some standard colors
+const Color Color::white = Color(1.0f, 1.0f, 1.0f);
+const Color Color::black = Color(0.0f, 0.0f, 0.0f);
