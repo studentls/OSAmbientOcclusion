@@ -187,16 +187,45 @@ public:
 		} else {
 			t = tmax;// camera inside of box
 			if (idmax % 2 == 0)
-				normal = normals[idmax / 2];
-			else
 				normal = normals[idmax / 2] * (-1.0);
+			else
+				normal = normals[idmax / 2];
 		}
 		
+		float EPSI = 0.01;
+
+		//if(abs(point[0] - cubes[locCube].getNearPoint()[0]) < EPS) 
+		//	   normal.setValue(-1,0,0);
+		//else if(abs(point[0] - cubes[locCube].getFarPoint()[0]) < EPS) 
+		//	  normal.setValue(1,0,0);
+		//else if(abs(point[1] - cubes[locCube].getNearPoint()[1]) < EPS) 
+		//	  normal.setValue(0,-1,0);
+		//else if(abs(point[1] - cubes[locCube].getFarPoint()[1]) < EPS) 
+		//	  normal.setValue(0,1,0);
+		//else if(abs(point[2] - cubes[locCube].getNearPoint()[2]) < EPS) 
+		//	  normal.setValue(0,0,-1);
+		//else if(abs(point[2] - cubes[locCube].getFarPoint()[2]) < EPS) 
+		//	  normal.setValue(0,0,1);
+
+		// intersection point
+		float EPS = 0.001f;
+		Vector point = r.origin + t * r.direction;
+		if(abs(point.x - getNearPoint().x ) < EPS)normal = Vector(-1, 0, 0);
+		else if(abs(point.x - getFarPoint().x ) < EPS)normal = Vector(1, 0, 0);
+		else if(abs(point.y - getNearPoint().y ) < EPS)normal = Vector(0, -1, 0);
+		else if(abs(point.y - getFarPoint().y ) < EPS)normal = Vector(0, 1, 0);
+		else if(abs(point.z - getNearPoint().z ) < EPS)normal = Vector(0, 0, -1);
+		else if(abs(point.z - getFarPoint().z ) < EPS)normal = Vector(0, 0, 1);
+
+
 		color = col;
 		fDistance = t;
 
 		return true;
 	}
+
+	inline Vector getNearPoint()	{return center - Vector(halfSize[0], halfSize[1], halfSize[2]);}
+	inline Vector getFarPoint()		{return center + Vector(halfSize[0], halfSize[1], halfSize[2]);}
 };
 
 #endif

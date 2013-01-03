@@ -132,9 +132,15 @@ public:
 		return id;
 	}
 
+	/// force a update for the gl Texture
+	void	forceupdate()	{update();}
+
 	/// get width/height
 	inline int getWidth() const {return width;}
 	inline int getHeight() const {return height;}
+
+	/// blur image
+
 };
 
 

@@ -21,9 +21,16 @@
 #include "Objects.h"
 #include "Camera.h"
 #include "Lights.h"
+#include "Matrix.h"
 
 // size of render window
-static const int g_width = 640;
-static const int g_height = 480;
+static const int g_width = 500;
+static const int g_height = 500;
+
+/// float random function
+float random(float fmin, float fmax)
+{
+	return fmin + ((float)(rand()%RAND_MAX) / (float)RAND_MAX) / (fmax - fmin);
+}
 
 #endif
