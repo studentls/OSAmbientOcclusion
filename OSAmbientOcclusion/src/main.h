@@ -14,11 +14,16 @@
 #include <boost/thread.hpp>
 #include <gl/glfw.h>
 
-#include <cmath>
-#include <iostream>
-#include <sstream>
-
 // own headers
+#include "Image.h"
 #include "Color.h"
+#include "Ray.h"
+#include "Objects.h"
+#include "Camera.h"
+#include "Lights.h"
+
+// size of render window
+static const int g_width = 640;
+static const int g_height = 480;
 
 #endif

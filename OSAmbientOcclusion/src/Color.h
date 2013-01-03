@@ -9,7 +9,10 @@
 #ifndef COLOR_HEADER_
 #define COLOR_HEADER_
 
-#include "main.h"
+#include <cmath>
+#include <iostream>
+#include <sstream>
+#include <cassert>
 
 static const double g_ColConv = 0.003921568627450980392156862745098;
 
@@ -35,12 +38,12 @@ public:
 	Color(const Color& c):r(c.r), g(c.g), b(c.b), a(c.a)	{}
 
 	/// value constructor out of unsigned long value
-	Color(const unsigned long& col): r(g_ColConv * (float)(unsigned char)(col >> 16)),
-								  g(g_ColConv * (float)(unsigned char)(col >> 8)),
-								  b(g_ColConv * (float)(unsigned char)(col)),
-								  a(g_ColConv * (float)(unsigned char)(col >> 24))	{}
+	Color(const unsigned long& col): r(g_ColConv * (float)(unsigned char)((col & 0x00ff0000) >> 16)),
+								  g(g_ColConv * (float)(unsigned char)((col & 0x0000ff00) >> 8)),
+								  b(g_ColConv * (float)(unsigned char)((col & 0x000000ff))),
+								  a(g_ColConv * (float)(unsigned char)((col & 0xff000000) >> 24))	{}
 
-	/// convert to standard 32 Bit representation 
+	/// convert to standard 32 Bit representation in ARGB format
 	operator unsigned long ()
 	{
 		
@@ -68,6 +71,9 @@ public:
 	//to def!
 	static const Color white;
 	static const Color black;
+	static const Color yellow; 
+	static const Color green;
+	static const Color blue;
 };
 
 
@@ -81,5 +87,11 @@ inline Color operator / (const Color& c, const float d)			{float invd = 1.0f / d
 inline Color operator + (const Color& a, const Color& b)		{return Color(a.r + b.r, a.g + b.g, a.b + b.b);}
 inline Color operator - (const Color& a, const Color& b)		{return Color(a.r - b.r, a.g - b.g, a.b - b.b);}
 inline Color operator - (const Color& c)						{return Color(-c.r, -c.g, -c.b);}
+
+// Littel Helper for Reordering
+inline unsigned long ARGBToABGR(unsigned long col)
+{
+	return ((col & 0x000000ff) << 16) | (col & 0xff00ff00) | ((col & 0x00ff0000) >> 16);
+}
 
 #endif

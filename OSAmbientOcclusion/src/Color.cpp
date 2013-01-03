@@ -11,3 +11,6 @@
 // define some standard colors
 const Color Color::white = Color(1.0f, 1.0f, 1.0f);
 const Color Color::black = Color(0.0f, 0.0f, 0.0f);
+const Color Color::yellow = Color(0xffffd34e);
+const Color Color::green = Color(0xff34d138);
+const Color Color::blue = Color(0xff003366);
