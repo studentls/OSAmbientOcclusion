@@ -192,31 +192,15 @@ public:
 				normal = normals[idmax / 2];
 		}
 		
-		float EPSI = 0.01;
-
-		//if(abs(point[0] - cubes[locCube].getNearPoint()[0]) < EPS) 
-		//	   normal.setValue(-1,0,0);
-		//else if(abs(point[0] - cubes[locCube].getFarPoint()[0]) < EPS) 
-		//	  normal.setValue(1,0,0);
-		//else if(abs(point[1] - cubes[locCube].getNearPoint()[1]) < EPS) 
-		//	  normal.setValue(0,-1,0);
-		//else if(abs(point[1] - cubes[locCube].getFarPoint()[1]) < EPS) 
-		//	  normal.setValue(0,1,0);
-		//else if(abs(point[2] - cubes[locCube].getNearPoint()[2]) < EPS) 
-		//	  normal.setValue(0,0,-1);
-		//else if(abs(point[2] - cubes[locCube].getFarPoint()[2]) < EPS) 
-		//	  normal.setValue(0,0,1);
-
-		// intersection point
-		float EPS = 0.001f;
-		Vector point = r.origin + t * r.direction;
-		if(abs(point.x - getNearPoint().x ) < EPS)normal = Vector(-1, 0, 0);
-		else if(abs(point.x - getFarPoint().x ) < EPS)normal = Vector(1, 0, 0);
-		else if(abs(point.y - getNearPoint().y ) < EPS)normal = Vector(0, -1, 0);
-		else if(abs(point.y - getFarPoint().y ) < EPS)normal = Vector(0, 1, 0);
-		else if(abs(point.z - getNearPoint().z ) < EPS)normal = Vector(0, 0, -1);
-		else if(abs(point.z - getFarPoint().z ) < EPS)normal = Vector(0, 0, 1);
-
+		//// intersection point
+		//float EPS = 0.001f;
+		//Vector point = r.origin + t * r.direction;
+		//if(abs(point.x - getNearPoint().x ) < EPS)normal = Vector(1, 0, 0);
+		//else if(abs(point.x - getFarPoint().x ) < EPS)normal = Vector(-1, 0, 0);
+		//else if(abs(point.y - getNearPoint().y ) < EPS)normal = Vector(0, -1, 0);
+		//else if(abs(point.y - getFarPoint().y ) < EPS)normal = Vector(0, 1, 0);
+		//else if(abs(point.z - getNearPoint().z ) < EPS)normal = Vector(0, 0, -1);
+		//else if(abs(point.z - getFarPoint().z ) < EPS)normal = Vector(0, 0, 1);
 
 		color = col;
 		fDistance = t;
@@ -226,6 +210,69 @@ public:
 
 	inline Vector getNearPoint()	{return center - Vector(halfSize[0], halfSize[1], halfSize[2]);}
 	inline Vector getFarPoint()		{return center + Vector(halfSize[0], halfSize[1], halfSize[2]);}
+};
+
+
+class Triangle : public IObject
+{
+private:
+	Vector v0, v1, v2;
+	Vector n;
+	Color col;
+public:
+
+	Triangle(const Vector& _v0, const Vector& _v1, const Vector& _v2, const Color& color)
+	{
+		v0 = _v0;
+		v1 = _v1;
+		v2 = _v2;
+
+		col = color;
+
+		// calc normal
+		Vector v01 = v0 - v1;
+		Vector v02 = v0 - v2;
+
+		n = v01.crossproduct(v02);
+		n.normalize();
+	}
+
+	virtual bool intersect(const Ray& r, float& fDistance, Vector& normal, Color& color)
+	{
+		static const float Epsilon = 0.0001f;
+
+		Vector vP, vT, vQ;
+
+		Vector vEdge1 = v1 - v0;
+		Vector vEdge2 = v2 - v0;
+
+		vP = r.direction;
+		vP = vP.crossproduct(vEdge2);
+
+		//if dot is near 0, ray is parallel
+		float f = vEdge1 * vP;
+		if(f < Epsilon && f > - Epsilon)return false;
+
+		float fInvDet = 1.0f / f;
+
+		//calc distance,  if < 0 triangle lies behind plane
+		vT = r.origin - v0;
+		float u = (vT * vP) * fInvDet;
+		if(u < 0.0f || u > 1.0f)return false;
+
+		vQ = vT.crossproduct(vEdge1);
+		float v = (r.direction * vQ) * fInvDet;
+		if(v < 0.0f || u + v > 1.0f)return false;
+
+		fDistance = (vEdge2 * vQ);
+		
+		fDistance *= fInvDet;
+		
+		normal = n;
+		color = col;
+
+		return true;
+	}
 };
 
 #endif

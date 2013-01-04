@@ -140,7 +140,134 @@ public:
 	inline int getHeight() const {return height;}
 
 	/// blur image
+	void	blur()
+	{
+		// construct a kernel
+		int kernel_sizex = 9;
+		int kernel_sizey = 9;
 
+		// kernel size has to be odd
+		assert(kernel_sizex & 0x1);
+		assert(kernel_sizey & 0x1);
+
+		float	*kernel = new float[kernel_sizex * kernel_sizey];
+
+		for(int i = 0; i < kernel_sizex; i++)
+			for(int j = 0; j < kernel_sizey; j++)
+			{
+				kernel[i + j * kernel_sizey] = 1.0f / (float)(kernel_sizex * kernel_sizey);
+			}
+
+		// go through image and apply kernel
+		
+		// temp array
+		Color *temp = new Color[width * height];
+		
+		// zero colors
+		for(int i = 0;  i < width * height; i++)temp[i] = Color(0.0f, 0.0f, 0.0f); 
+
+		for(int x = 0;  x < width; x++)
+			for(int y = 0; y < height; y++)
+			{
+				// apply kernel (with periodic boundaries)
+				for(int i = 0; i < kernel_sizex; i++)
+					for(int j = 0; j < kernel_sizey; j++)
+					{
+						int xindex = x + i - kernel_sizex / 2;
+						int yindex = y + j - kernel_sizey / 2;
+
+						// apply periodic conditions
+						if(xindex >= width)xindex -= width;
+						if(yindex >= height)yindex -= height;
+						if(xindex < 0)xindex += width;
+						if(yindex < 0)yindex += height;
+
+
+						assert(xindex >= 0 && xindex < width);
+						assert(yindex >= 0 && yindex < height);
+						
+						// add kernel
+						temp[x + y * width] = temp[x + y * width]   +   kernel[i + j * kernel_sizex] * data[xindex + yindex * width];
+					}
+			}
+
+
+		// set pointers
+		Color *delpointer = data;
+		data = temp;
+		delete [] delpointer;
+
+
+		delete [] kernel;
+
+		update();
+	}
+
+	/// copy image from another
+	void	copyFrom(const Image& img)
+	{
+		// delete data
+		if(data)delete [] data;
+		width = img.width;
+		height = img.height;
+
+		data = new Color[width * height];
+
+		// copy
+		for(int i = 0; i < width * height; i++)data[i] = img.data[i];
+
+		update();
+	}
+
+	/// inverse
+	inline void invert()
+	{
+		for(int i = 0; i < width * height; i++)data[i] = Color(1.0f, 1.0f, 1.0f) - data[i];
+
+		update();
+	}
+
+	/// multiply with image
+	void	multiply(const Image& img)
+	{
+		//check dimensions
+		assert(width == img.width);
+		assert(height == img.height);
+
+		for(int i = 0; i < width * height; i++)data[i] = data[i] * img.data[i];
+
+		update();
+	}
+
+	/// normalize image(stretch values to 0.0 - 1.0)
+	/// except for alpha
+	void normalize()
+	{
+		using namespace std;
+		
+		Color cmin = Color(99999.9f,99999.9f,99999.9f);
+		Color cmax = Color(-99999.9f,-99999.9f,-99999.9f);
+
+		for(int i = 0; i < width * height; i++)
+		{
+			cmin.r = min(cmin.r, data[i].r);
+			cmin.g = min(cmin.g, data[i].g);
+			cmin.b = min(cmin.b, data[i].b);
+
+			cmax.r = max(cmax.r, data[i].r);
+			cmax.g = max(cmax.g, data[i].g);
+			cmax.b = max(cmax.b, data[i].b);
+		}
+
+		Color cscale = cmax - cmin;
+
+		for(int i = 0; i < width * height; i++)
+		{
+			data[i] = data[i] * cscale - cmin;
+		}
+
+		update();
+	}
 };
 
 

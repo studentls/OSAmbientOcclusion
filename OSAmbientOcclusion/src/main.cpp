@@ -19,10 +19,18 @@ Image g_normals;
 // ambient occlusion pass
 Image g_aopass;
 
+// inverse ambient occlusion pass blurred
+Image g_invao;
+
+// final composited image
+Image g_final;
+
 // any image needs a mutex
 boost::mutex img_mutex;
 boost::mutex norm_mutex;
 boost::mutex ao_mutex;
+boost::mutex invao_mutex;
+boost::mutex final_mutex;
 
 // list of scene objects
 vector<IObject*> g_objects;
@@ -30,10 +38,93 @@ vector<IObject*> g_objects;
 // list of scene lights
 vector<ILight*> g_lights;
 
+// store positions
+// store normals
+class GBuffer
+{
+private:
+	Vector *points;
+	Vector *normals;
+	int width, height;
+public:
+	GBuffer():points(NULL), normals(NULL)	{}
+
+	GBuffer(const int _width, const int _height):width(_width), height(_height)
+	{
+		points = new Vector[width * height];
+		normals = new Vector[width * height];
+	}
+
+	GBuffer(const GBuffer& buf)
+	{
+		width = buf.width;
+		height = buf.height;
+
+		points = new Vector[width * height];
+		normals = new Vector[width * height];
+
+		for(int i = 0; i < width*height; i++)
+		{
+			points[i] = buf.points[i];
+			normals[i] = buf.normals[i];
+		}
+	}
+
+	~GBuffer()
+	{
+		if(points)delete [] points;
+		if(normals)delete [] normals;
+	}
+
+	void operator =		(const GBuffer& buf)
+	{
+		width = buf.width;
+		height = buf.height;
+
+		points = new Vector[width * height];
+		normals = new Vector[width * height];
+
+		for(int i = 0; i < width*height; i++)
+		{
+			points[i] = buf.points[i];
+			normals[i] = buf.normals[i];
+		}
+	}
+
+	Vector getPoint(const int x, const int y)
+	{
+		assert(0 <= x + y * width && x + y *width < width * height);
+
+		return points[x + y * width];
+	}
+
+	Vector getNormal(const int x, const int y)
+	{
+		assert(0 <= x + y * width && x + y *width < width * height);
+
+		return normals[x + y * width];
+	}
+
+	void setPoint(const int x, const int y, const Vector& point)
+	{
+		assert(0 <= x + y * width && x + y *width < width * height);
+		points[x + y * width] = point;
+	}
+
+	void setNormal(const int x, const int y, const Vector& normal)
+	{
+		assert(0 <= x + y * width && x + y *width < width * height);
+		normals[x + y * width] = normal;
+	}
+};
+
+
+GBuffer g_GBuffer;
+
 // camera
 Camera g_camera;
 
-#define MAX_MODES 3
+#define MAX_MODES 5
 // mode
 int mode;
 
@@ -62,6 +153,14 @@ void Draw()
 	if(mode == 2)
 	{
 		glBindTexture(GL_TEXTURE_2D, g_normals.getTexture());
+	}
+	if(mode == 3)
+	{
+		glBindTexture(GL_TEXTURE_2D, g_invao.getTexture());
+	}
+	if(mode == 4)
+	{
+		glBindTexture(GL_TEXTURE_2D, g_final.getTexture());
 	}
 
 
@@ -124,7 +223,7 @@ bool intersectObjects(const Ray& r, float& fDistance, Vector& normal, Color& col
 			intersection = true;
 
 			// nearer?
-			if(abs(fDistance) < abs(fLastDistance))
+			if(fDistance < fLastDistance)
 			{
 				fLastDistance = fDistance;
 				color = _color;
@@ -133,10 +232,12 @@ bool intersectObjects(const Ray& r, float& fDistance, Vector& normal, Color& col
 		}
 	}
 
+	fDistance = fLastDistance;
+
 	return intersection;
 }
 
-Color traceRay(const Ray& r, Vector& normal)
+Color traceRay(const Ray& r, Vector& normal, Vector& point)
 {
 	Color color;
 	float fDistance;
@@ -144,7 +245,37 @@ Color traceRay(const Ray& r, Vector& normal)
 	// shade
 	if(intersectObjects(r, fDistance, normal, color))color = shade(r, fDistance, normal, color);
 
+	// calc point
+	point = r.origin + fDistance * r.direction;
+
 	return color;
+}
+
+// for antialiasing
+Color traceGrid(const int x, const int y, const int grid_size)
+{
+	float fX = (float)x;
+	float fY = (float)y;
+	Color col = Color::black;
+
+	float fdX = 1.0f / (float)grid_size;
+	float fdY = 1.0f / (float)grid_size;
+
+	Vector normal;
+	Vector point;
+	Ray ray;
+
+	for(int i = 0; i < grid_size; i++)
+		for(int j = 0; j < grid_size; j++)
+		{
+			ray = g_camera.getRay(fX - 0.5f + fdX * i, fY - 0.5f + fdY * j);
+			col = col + traceRay(ray, normal, point);
+		}
+
+	//diff
+	col = col / (float)(grid_size * grid_size);
+
+	return col;
 }
 
 void Raytrace()
@@ -156,9 +287,15 @@ void Raytrace()
 			// trace ray
 			Ray ray = g_camera.getRay(x, y);
 			Vector normal;
+			Vector point;
 
-			Color col = traceRay(ray, normal);
-			normal = -normal;
+			Color col = traceRay(ray, normal, point);
+			
+			// store in buffer
+			g_GBuffer.setNormal(x, y, normal);
+			g_GBuffer.setPoint(x, y, point);
+
+			col = traceGrid(x, y, 5);
 
 			// mutexes
 			norm_mutex.lock();
@@ -168,42 +305,59 @@ void Raytrace()
 			g_image.setPixel(x, y, col);
 			img_mutex.unlock();
 		}
+
+	// generate depth picture
+	float fminZ = 99999.9f, fmaxZ = -99999.9f;
+	for(int x = 0; x < g_width; x++)
+		for(int y = 0; y < g_height; y++)
+		{
+			fminZ = min(fminZ, g_GBuffer.getPoint(x, y).z);
+			fmaxZ = max(fmaxZ, g_GBuffer.getPoint(x, y).z);
+		}
+	float fDepth = fmaxZ - fminZ; // scale factor
+
+	norm_mutex.lock();
+	for(int x = 0; x < g_width; x++)
+		for(int y = 0; y < g_height; y++)
+		{
+			float depth = (g_GBuffer.getPoint(x,y).z - fminZ) / fDepth;
+			g_normals.setPixel(x, y, Color(depth, depth, depth));
+		}
+	norm_mutex.unlock();
 }
 
 void createScene()
 {
-	// some new things
-	///fov = 3.14159 / 3.2
-	Vector camPos	= Vector(0, -0.7, -0.3);
-	Vector lookAt	= Vector(0, -0.7, -6);
+	//// some new things
+	/////fov = 3.14159 / 3.2
+	Vector camPos	= Vector(0, 0, 1);
+	Vector lookAt	= Vector(0, 0, 0);
 	Vector upDir	= Vector(0, 1, 0);
 	g_camera.setPositionAndLookAt(3.14159 / 3.2,
 		camPos, lookAt, upDir, g_width, g_height);
 
 	// add some spheres
 
-	Sphere *sph1 = new Sphere(1.0f, Vector(0.75, -1, -4.75), Color::yellow);
-	Sphere *sph2 = new Sphere(0.75f, Vector(-0.75, -1.25, -3.5), Color::blue);
-	Sphere *sph3 = new Sphere(0.4f, Vector(0.5, -1.6, -3.5), Color::green);
+	Sphere *sph1 = new Sphere(1.0f, Vector(0.75, -1, -4.75 - 1), Color::yellow);
+	Sphere *sph2 = new Sphere(0.75f, Vector(-0.75, -1.25, -3.5 - 1), Color::blue);
+	Sphere *sph3 = new Sphere(0.4f, Vector(0.5, -1.6, -3.5 - 1), Color::green);
 	g_objects.push_back(sph1);
 	g_objects.push_back(sph2);
 	g_objects.push_back(sph3);
 
 	// add some boxes
-	Box *box1 = new Box(Vector(-2, -2, -6), Vector(2, 2, 0.1),
-				Color::white * 0.8f);
-	Vector center = Vector(0.5 + 0.25, 1.6, -5.5);
-	Box *box2 = new Box(center + Vector(0.25, 0.25, 0.25), center - Vector(0.25, 0.25, 0.25),
-				Color::white * 0.8f);
-	//g_objects.push_back(box1);
-	//g_objects.push_back(box2);
+	Box *box1 = new Box(Vector(-2, -2, -6), Vector(2, 2, 6.1),
+				Color::white * 0.8f);	
+	g_objects.push_back(box1);
+	Triangle *t1 = new Triangle(Vector(-2, -2, -5), Vector(2, -2, 1.1), Vector(2, -2, -5), Color::blue);
+	//g_objects.push_back(t1);
 
 	// add some lights
-	AmbientLight *alight = new AmbientLight(0.2f * Color::white);
+	AmbientLight *alight = new AmbientLight(0.9f * Color::yellow);
 	DirectionalLight *dirlight = new DirectionalLight(Color::white, -Vector(0.2f, 1.0f, 0.6f));
 	
 	g_lights.push_back(alight);
-	g_lights.push_back(dirlight);
+	//g_lights.push_back(dirlight);
 }
 
 void deleteScene()
@@ -231,26 +385,7 @@ void deleteScene()
 	g_lights.clear();
 }
 
-Matrix3x3 getHemisphereTransformationMatrix(const Vector& normal)
-{
-	// first create a random ray for a standard oriented hemisphere
-	Vector v = Vector(random(-1.0f, 1.0f), random(-1.0f, 1.0f), random(0.0f, 1.0f));
-
-	// normalize
-	v.normalize();
-
-	// now transform
-
-	// construct tangent and bitangent with Gram-Schmidt
-	Vector tangent = v - normal * (normal * v);
-	tangent.normalize();
-
-	Vector bitangent = - tangent.crossproduct(normal);
-	bitangent.normalize();
-
-	return Matrix3x3(tangent, bitangent, normal);	
-}
-
+// rejection sampling
 Vector getHemisphereVector(const Vector& normal)
 {
 	while(true)
@@ -277,7 +412,7 @@ Color traceAO(const Ray& r)
 	Color color = Color::black;
 
 	// shoot randomly oriented rays from the hemisphere...
-	int kernel_size = 64; // 64 samples
+	int kernel_size = 256; // sample count
 	float fDistance;
 	Vector normal;
 	Color col; //received color, dummy
@@ -286,15 +421,42 @@ Color traceAO(const Ray& r)
 	if(intersectObjects(r, fDistance, normal, col))
 	{
 		// perform AO
+		static const float epsilon = 0.0001f;
 
 		// determine intersection position
 		Vector point = r.origin + (r.direction * fDistance);
 
-		// shoot random rays
-		Ray kernel_ray(point + 0.0001 * Vector(EPSILON, EPSILON, EPSILON), Vector()); // init with position
+		// calc a basis for the local hemisphere
+		Vector tangent;
+		Vector binormal;
+		
+		// construct tangent and binormal
+		// if x, y != 0 choose t = (-n2 n1 0)^T
+		// else t = (0 -n3 n2)^T
+		if(abs(normal.x) > epsilon || abs(normal.y) > epsilon)
+		{
+			tangent = Vector(-normal.y, normal.x, 0.0f);
+		}
+		else
+		{
+			tangent = Vector(0.0f, -normal.z, normal.y);
+		}
+		tangent.normalize();
 
-		// generate transformation matrix to reorient random vectors...
-		Matrix3x3 m = getHemisphereTransformationMatrix(-normal);
+		// use cross product to determine binormal
+		binormal = tangent.crossproduct(normal);
+
+		// normalize
+		tangent.normalize();
+		binormal.normalize();
+
+		// some assertions
+		assert(normal * tangent < epsilon);
+		assert(normal * binormal < epsilon);
+		assert(tangent * binormal < epsilon);
+
+		// shoot random rays
+		Ray kernel_ray(point, Vector()); // init with position
 
 		// dummies
 		float kernel_fdist;
@@ -305,22 +467,20 @@ Color traceAO(const Ray& r)
 		float occlusion_factor = 0.0;
 		for(int i = 0; i < kernel_size; i++)
 		{
-			// pick random vector
-			Vector v = Vector(random(-1.0f, 1.0f), random(-1.0f, 1.0f), random(0.0f, -1.0f));
-
-			// transform with matrix
-			v = m * v;
-
-			// generate ray
-			//Vector v = getHemisphereVector(normal);
-
+			// construct local random ray, through basis
+			// note that we use a hemisphere, therefore the random value for the normal is in [0, 1]
+			Vector v = random(-1.0f, 1.0f) * tangent + random(-1.0f, 1.0f) * binormal + random(0.0, 1.0f) * normal;
+			v.normalize();
+				
 			kernel_ray.direction = v;
 
 			// intersect with scene
 			if(intersectObjects(kernel_ray, kernel_fdist, kernel_normal, kernel_color))
 			{
+				assert(kernel_fdist >= 0.0);
+				
 				// range check
-				if(kernel_fdist < 0.40f && kernel_fdist > 0.001f)occlusion_factor += 1.0; // simply add(maybe later account light better)
+				if(kernel_fdist < 0.40f && kernel_fdist > 0.0001f)occlusion_factor += 1.0; // simply add(maybe later account light better)
 			}
 		}
 
@@ -344,7 +504,6 @@ void AmbientOcclusionPass()
 			Ray ray = g_camera.getRay(x, y);
 
 			Color col = traceAO(ray);
-
 			
 			g_aopass.setPixel(x, y, col);
 			
@@ -357,11 +516,29 @@ void AmbientOcclusionPass()
 /// own render thread
 void RenderMain()
 {
-	//raytrace Image
+	// raytrace Image
 	Raytrace();
-
+	
 	// perform AmbientOcclusion pass
 	AmbientOcclusionPass();
+
+	
+	// composite images...
+
+	// blur
+	invao_mutex.lock();
+	g_invao.copyFrom(g_aopass);
+	g_invao.blur();
+	g_invao.invert();
+	// uncomment to get darker
+	//g_invao.normalize();
+	invao_mutex.unlock();
+
+	// composite
+	final_mutex.lock();
+	g_final.copyFrom(g_image);
+	g_final.multiply(g_invao);
+	final_mutex.unlock();
 }
 
 int main(int argc, char * argv[])
@@ -370,15 +547,16 @@ int main(int argc, char * argv[])
 	g_image.create(g_width, g_height);
 	g_normals.create(g_width, g_height);
 	g_aopass.create(g_width, g_height);
+	g_invao.create(g_width, g_height);
+	g_final.create(g_width, g_height);
+
+	// set up GBuffer
+	g_GBuffer = GBuffer(g_width, g_height);
 
 	// start mode is 0
 	mode = 0;
 
-	// put some pixels
-	for(int i = 0; i < min(g_width, g_height); i++)
-	{
-		g_image.setPixel(i, i, Color::white);
-	}
+	srand((unsigned)time(0));
 
 	// define some scene objects
 	createScene();
@@ -392,9 +570,6 @@ int main(int argc, char * argv[])
 	glfwOpenWindow(g_width, g_height, 8, 8, 8, 8, 0, 0, GLFW_WINDOW);
 	glfwSetWindowTitle("Object Space Ambient Occlusion");
 	
-	
-	
-	
 	// loop till end
 	bool running = true;
 	while(running)
@@ -404,27 +579,30 @@ int main(int argc, char * argv[])
 		img_mutex.lock();
 		ao_mutex.lock();
 		norm_mutex.lock();
+		invao_mutex.lock();
+		final_mutex.lock();
 
 		Draw();
 		
-		norm_mutex.unlock();
-		ao_mutex.unlock();
-		img_mutex.unlock();
-		
-
 		// swap buffers
 		glfwSwapBuffers();
 
+		final_mutex.unlock();
+		invao_mutex.unlock();
+		norm_mutex.unlock();
+		ao_mutex.unlock();
+		img_mutex.unlock();		
+
 		// switch render modes...
 		if(glfwGetKey(GLFW_KEY_F1)){mode = 0; img_mutex.lock(); g_image.forceupdate(); img_mutex.unlock();}
-		if(glfwGetKey(GLFW_KEY_F2)){mode = 1; ao_mutex.lock(); g_aopass.forceupdate(); ao_mutex.unlock();}
-		if(glfwGetKey(GLFW_KEY_F3)){mode = 2; norm_mutex.lock(); g_normals.forceupdate(); norm_mutex.unlock();}
+		if(glfwGetKey(GLFW_KEY_F3)){mode = 1; ao_mutex.lock(); g_aopass.forceupdate(); ao_mutex.unlock();}
+		if(glfwGetKey(GLFW_KEY_F2)){mode = 2; norm_mutex.lock(); g_normals.forceupdate(); norm_mutex.unlock();}
+		if(glfwGetKey(GLFW_KEY_F4)){mode = 3; invao_mutex.lock(); g_invao.forceupdate(); invao_mutex.unlock();}
+		if(glfwGetKey(GLFW_KEY_F5)){mode = 4; final_mutex.lock(); g_final.forceupdate(); final_mutex.unlock();}
 
 		// if ESC or window closed terminate
 		running = ! glfwGetKey(GLFW_KEY_ESC) && glfwGetWindowParam(GLFW_OPENED);
 	}
-
-
 
 	//terminate glfw
 	glfwTerminate();

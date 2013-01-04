@@ -13,6 +13,7 @@
 #include <iostream>
 #include <boost/thread.hpp>
 #include <gl/glfw.h>
+#include <ctime>
 
 // own headers
 #include "Image.h"
@@ -24,13 +25,19 @@
 #include "Matrix.h"
 
 // size of render window
-static const int g_width = 500;
-static const int g_height = 500;
+
+#ifdef _DEBUG
+static const int g_width = 10;
+static const int g_height = 10;
+#else
+static const int g_width = 300;
+static const int g_height = 300;
+#endif
 
 /// float random function
 float random(float fmin, float fmax)
 {
-	return fmin + ((float)(rand()%RAND_MAX) / (float)RAND_MAX) / (fmax - fmin);
+	return fmin + (((float)(rand()%RAND_MAX) / (float)RAND_MAX)) * (fmax - fmin);
 }
 
 #endif

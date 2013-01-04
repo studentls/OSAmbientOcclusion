@@ -50,6 +50,7 @@ private:
 	}
 
 public:
+
 	inline Ray getRay(float fX, float fY)
 	{
 		float x = fX * 1.0f / (float)width;
